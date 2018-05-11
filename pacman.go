@@ -3,8 +3,9 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -16,11 +17,12 @@ type pkgInfo struct {
 }
 
 // GET PACKAGES
-func getForeignPackages() (map[string]*pkgInfo, error) {
+func getForeignPackages() map[string]*pkgInfo {
 	cmd := exec.Command("/bin/pacman", "-Qm")
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, errors.New("can't read pacman's output")
+		fmt.Println(err)
+		os.Exit(99)
 	}
 
 	packages := make(map[string]*pkgInfo)
@@ -34,7 +36,7 @@ func getForeignPackages() (map[string]*pkgInfo, error) {
 			packages[p] = &pkgInfo{version: scanner.Text()}
 		}
 	}
-	return packages, nil
+	return packages
 }
 
 func isNewer(old, new string) bool {
@@ -52,15 +54,49 @@ func isNewer(old, new string) bool {
 	return r < 0
 }
 
-func getIgnored() map[string]int {
-	ignored := make(map[string]int)
+func readConf(pacmanConf string) []string {
+	f, err := os.Open(pacmanConf)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	conf := bufio.NewReader(f)
 
-	//where is pacman.conf
-	//open pacman.conf
-	//follow includes?
-	//get lines with ignoredpkg
-	//take ignore groups into consideration?
-	// tokenize ignored packages and apply shell glob? or store the package with globing characters?
+	var ignored []string
 
+	// fmt.Println("reading from file: ", pacmanConf)
+	for {
+		//read a line
+		line, err := conf.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			panic(err)
+		}
+
+		line = strings.TrimSpace(line)
+
+		if strings.HasPrefix(line, "Include") {
+			//strip comments
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			i := strings.IndexByte(line, '=')
+			ignored = append(ignored, readConf(strings.Fields(line[i+1:])[0])...)
+			continue
+		}
+		if strings.HasPrefix(line, "IgnorePkg") {
+			//strip comments
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			i := strings.IndexByte(line, '=')
+			ignored = append(ignored, strings.Fields(line[i+1:])...)
+			continue
+		}
+	}
 	return ignored
 }
+
+//TODO:take ignore groups into consideration?
