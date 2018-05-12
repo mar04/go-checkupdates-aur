@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type pkgInfo struct {
@@ -54,7 +55,28 @@ func isNewer(old, new string) bool {
 	return r < 0
 }
 
-func readConf(pacmanConf string) []string {
+func getIgnored(confFile string, ignored *[]string, ready chan int) {
+	var mux = &sync.Mutex{}
+	var c = make(chan int)
+	var toIgnore = make(chan string, 10)
+	var visited = make(map[string]int)
+	visited[confFile]++
+	go readConf(confFile, visited, mux, toIgnore, c)
+	for {
+		select {
+		case <-c:
+			ready <- 1
+			return
+		case i := <-toIgnore:
+			// fmt.Println("adding to ignored:", i)
+			*ignored = append(*ignored, i)
+		}
+	}
+}
+
+func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgnore chan string, c chan int) {
+	defer func(cc chan int) { cc <- 1 }(c)
+	// fmt.Println("visiting file:", pacmanConf)
 	f, err := os.Open(pacmanConf)
 	if err != nil {
 		panic(err)
@@ -62,9 +84,9 @@ func readConf(pacmanConf string) []string {
 	defer f.Close()
 	conf := bufio.NewReader(f)
 
-	var ignored []string
+	var ready = make(chan int)
+	var goCount int
 
-	// fmt.Println("reading from file: ", pacmanConf)
 	for {
 		//read a line
 		line, err := conf.ReadString('\n')
@@ -83,7 +105,16 @@ func readConf(pacmanConf string) []string {
 				line = line[:i]
 			}
 			i := strings.IndexByte(line, '=')
-			ignored = append(ignored, readConf(strings.Fields(line[i+1:])[0])...)
+			file := strings.Fields(line[i+1:])[0]
+			mux.Lock()
+			if visited[file] == 0 {
+				visited[file]++
+				mux.Unlock()
+				go readConf(file, visited, mux, toIgnore, ready)
+				goCount++
+			} else {
+				mux.Unlock()
+			}
 			continue
 		}
 		if strings.HasPrefix(line, "IgnorePkg") {
@@ -92,11 +123,16 @@ func readConf(pacmanConf string) []string {
 				line = line[:i]
 			}
 			i := strings.IndexByte(line, '=')
-			ignored = append(ignored, strings.Fields(line[i+1:])...)
+			for _, s := range strings.Fields(line[i+1:]) {
+				toIgnore <- s
+			}
 			continue
 		}
 	}
-	return ignored
+	for goCount > 0 {
+		<-ready
+		goCount--
+	}
 }
 
 //TODO:take ignore groups into consideration?

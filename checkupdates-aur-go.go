@@ -2,13 +2,18 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/gobwas/glob"
 )
 
 func main() {
+	var ignored []string
+	var ready = make(chan int)
+	go getIgnored("/etc/pacman.conf", &ignored, ready)
 	packages := getForeignPackages()
-	ignored := readConf("/etc/pacman.conf")
 	getAurVersions(packages)
+	<-ready
+	// fmt.Println(ignored)
 	printAurVersions(packages, ignored)
 }
 
