@@ -13,7 +13,6 @@ func main() {
 	packages := getForeignPackages()
 	getAurVersions(packages)
 	<-ready
-	// fmt.Println(ignored)
 	printAurVersions(packages, ignored)
 }
 

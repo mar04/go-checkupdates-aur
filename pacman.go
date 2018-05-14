@@ -44,15 +44,13 @@ func isNewer(old, new string) bool {
 	cmd := exec.Command("/bin/vercmp", old, new)
 	out, err := cmd.Output()
 	if err != nil {
-		fmt.Println(err)
-		return false //TODO: exit?
+		panic(err)
 	}
-	r, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	result, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil {
-		fmt.Println(err)
-		return false //TODO:exit?
+		panic(err)
 	}
-	return r < 0
+	return result < 0
 }
 
 func getIgnored(confFile string, ignored *[]string, ready chan int) {
@@ -64,28 +62,27 @@ func getIgnored(confFile string, ignored *[]string, ready chan int) {
 	go readConf(confFile, visited, mux, toIgnore, c)
 	for {
 		select {
+		case pkgGlob := <-toIgnore:
+			*ignored = append(*ignored, pkgGlob)
 		case <-c:
 			ready <- 1
 			return
-		case i := <-toIgnore:
-			// fmt.Println("adding to ignored:", i)
-			*ignored = append(*ignored, i)
 		}
 	}
 }
 
 func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgnore chan string, c chan int) {
 	defer func(cc chan int) { cc <- 1 }(c)
-	// fmt.Println("visiting file:", pacmanConf)
+
 	f, err := os.Open(pacmanConf)
 	if err != nil {
-		panic(err)
+		return
 	}
 	defer f.Close()
 	conf := bufio.NewReader(f)
 
 	var ready = make(chan int)
-	var goCount int
+	var threads int
 
 	for {
 		//read a line
@@ -111,7 +108,7 @@ func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgno
 				visited[file]++
 				mux.Unlock()
 				go readConf(file, visited, mux, toIgnore, ready)
-				goCount++
+				threads++
 			} else {
 				mux.Unlock()
 			}
@@ -123,16 +120,14 @@ func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgno
 				line = line[:i]
 			}
 			i := strings.IndexByte(line, '=')
-			for _, s := range strings.Fields(line[i+1:]) {
-				toIgnore <- s
+			for _, pkgGlob := range strings.Fields(line[i+1:]) {
+				toIgnore <- pkgGlob
 			}
 			continue
 		}
 	}
-	for goCount > 0 {
+	for threads > 0 {
 		<-ready
-		goCount--
+		threads--
 	}
 }
-
-//TODO:take ignore groups into consideration?
