@@ -4,12 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 type pkgInfo struct {
@@ -54,46 +52,22 @@ func isNewer(old, new string) bool {
 }
 
 func getIgnored(confFile string, ignored *[]string, ready chan int) {
-	var mux = &sync.Mutex{}
-	var c = make(chan int)
-	var toIgnore = make(chan string, 10)
 	var visited = make(map[string]int)
 	visited[confFile]++
-	go readConf(confFile, visited, mux, toIgnore, c)
-	for {
-		select {
-		case pkgGlob := <-toIgnore:
-			*ignored = append(*ignored, pkgGlob)
-		case <-c:
-			ready <- 1
-			return
-		}
-	}
+	readConf(confFile, visited, ignored)
+	ready <- 1
 }
 
-func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgnore chan string, c chan int) {
-	defer func(cc chan int) { cc <- 1 }(c)
-
+func readConf(pacmanConf string, visited map[string]int, ignored *[]string) {
 	f, err := os.Open(pacmanConf)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	conf := bufio.NewReader(f)
+	scan := bufio.NewScanner(f)
 
-	var ready = make(chan int)
-	var threads int
-
-	for {
-		//read a line
-		line, err := conf.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			panic(err)
-		}
-
+	for scan.Scan() {
+		line := scan.Text()
 		line = strings.TrimSpace(line)
 
 		if strings.HasPrefix(line, "Include") {
@@ -101,16 +75,12 @@ func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgno
 			if i := strings.IndexByte(line, '#'); i >= 0 {
 				line = line[:i]
 			}
+
 			i := strings.IndexByte(line, '=')
 			file := strings.Fields(line[i+1:])[0]
-			mux.Lock()
 			if visited[file] == 0 {
 				visited[file]++
-				mux.Unlock()
-				go readConf(file, visited, mux, toIgnore, ready)
-				threads++
-			} else {
-				mux.Unlock()
+				readConf(file, visited, ignored)
 			}
 			continue
 		}
@@ -119,15 +89,12 @@ func readConf(pacmanConf string, visited map[string]int, mux *sync.Mutex, toIgno
 			if i := strings.IndexByte(line, '#'); i >= 0 {
 				line = line[:i]
 			}
+
 			i := strings.IndexByte(line, '=')
 			for _, pkgGlob := range strings.Fields(line[i+1:]) {
-				toIgnore <- pkgGlob
+				*ignored = append(*ignored, pkgGlob)
 			}
 			continue
 		}
-	}
-	for threads > 0 {
-		<-ready
-		threads--
 	}
 }

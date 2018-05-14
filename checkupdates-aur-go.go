@@ -2,8 +2,7 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/gobwas/glob"
+	"path/filepath"
 )
 
 func main() {
@@ -13,23 +12,22 @@ func main() {
 	packages := getForeignPackages()
 	getAurVersions(packages)
 	<-ready
-	printAurVersions(packages, ignored)
+	printUpdates(packages, ignored)
 }
 
-func printAurVersions(packages map[string]*pkgInfo, ignored []string) {
+func printUpdates(packages map[string]*pkgInfo, ignored []string) {
 	for pkgName, v := range packages {
-		if v.aurVersion != "" && isNewer(v.version, v.aurVersion) && notIgnored(pkgName, ignored) {
+		if v.aurVersion != "" && isNewer(v.version, v.aurVersion) && !isIgnored(pkgName, ignored) {
 			fmt.Println(pkgName, v.version, "->", v.aurVersion)
 		}
 	}
 }
 
-func notIgnored(pkgName string, ignored []string) bool {
-	for _, i := range ignored {
-		g := glob.MustCompile(i)
-		if g.Match(pkgName) {
-			return false
+func isIgnored(pkgName string, ignored []string) bool {
+	for _, pkgGlob := range ignored {
+		if result, err := filepath.Match(pkgGlob, pkgName); err == nil && result {
+			return true
 		}
 	}
-	return true
+	return false
 }
