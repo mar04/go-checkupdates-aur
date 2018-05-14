@@ -27,6 +27,9 @@ func constructQuery(packages map[string]*pkgInfo) string {
 }
 
 func getAurVersions(packages map[string]*pkgInfo) {
+	if packages == nil || len(packages) == 0 {
+		return
+	}
 	query := constructQuery(packages)
 
 	resp, err := http.Get(query)

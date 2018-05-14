@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"path/filepath"
 )
-
+//TODO:testing
+//TODO:debugging output
+//TODO:documentation, together with exit codes
 func main() {
 	var ignored []string
 	var ready = make(chan int)
-	go getIgnored("/etc/pacman.conf", &ignored, ready)
+	//TODO:allow passing configuration file location
+	go getIgnored("/etc/pacman.conf", &ignored, ready) //TODO:allow ignoring ignore pkgs
 	packages := getForeignPackages()
 	getAurVersions(packages)
 	<-ready
